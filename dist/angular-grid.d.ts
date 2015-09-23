@@ -1,9 +1,10 @@
 declare module awk.grid {
     class AgGridDirective {
         private elementDef;
-        private _gridOptions;
         private _agGrid;
+        private gridOptions;
         private api;
+        private columnApi;
         modelUpdated: any;
         cellClicked: any;
         cellDoubleClicked: any;
@@ -19,9 +20,20 @@ declare module awk.grid {
         virtualRowRemoved: any;
         rowClicked: any;
         ready: any;
+        columnEverythingChanged: any;
+        columnPivotChanged: any;
+        columnValueChanged: any;
+        columnMoved: any;
+        columnVisible: any;
+        columnGroupOpened: any;
+        columnResized: any;
+        columnPinnedCountChanged: any;
+        showToolPanel: boolean;
         constructor(elementDef: any);
-        gridOptions: GridOptions;
         quickFilterText: string;
+        onInit(): void;
+        onChange(changes: any): void;
+        private columnEventListener(event);
         private genericEventListener(eventName, event);
     }
 }
@@ -34,11 +46,11 @@ declare module awk.grid {
         private toIndex;
         private pinnedColumnCount;
         /** A new set of columns has been entered, everything has potentially changed. */
-        static TYPE_EVERYTHING: string;
+        static TYPE_COLUMN_EVERYTHING_CHANGED: string;
         /** A pivot column was added, removed or order changed. */
-        static TYPE_PIVOT_CHANGE: string;
+        static TYPE_COLUMN_PIVOT_CHANGE: string;
         /** A value column was added, removed or agg function was changed. */
-        static TYPE_VALUE_CHANGE: string;
+        static TYPE_COLUMN_VALUE_CHANGE: string;
         /** A column was moved */
         static TYPE_COLUMN_MOVED: string;
         /** One or more columns was shown / hidden */
@@ -48,7 +60,7 @@ declare module awk.grid {
         /** One or more columns was resized. If just one, the column in the event is set. */
         static TYPE_COLUMN_RESIZED: string;
         /** One or more columns was resized. If just one, the column in the event is set. */
-        static TYPE_PINNED_COUNT_CHANGED: string;
+        static TYPE_COLUMN_PINNED_COUNT_CHANGED: string;
         constructor(type: string);
         toString(): string;
         withColumn(column: Column): ColumnChangeEvent;
@@ -282,7 +294,7 @@ declare module awk.grid {
         getColWidth(): number;
         private checkForDeprecated();
         getPinnedColCount(): number;
-        getLocaleTextFunc(): (key: any, defaultValue: any) => any;
+        getLocaleTextFunc(): Function;
         fireEvent(eventName: string, event?: any): void;
     }
 }
@@ -1201,7 +1213,11 @@ declare module awk.grid {
         init(gridOptionsWrapper: GridOptionsWrapper, columnController: ColumnController, angularGrid: any, filterManager: FilterManager, $scope: any, groupCreator: GroupCreator, valueService: ValueService): void;
         private createModel();
         getModel(): any;
-        forEachInMemory(callback: any): void;
+        forEachInMemory(callback: Function): void;
+        forEachNode(callback: Function): void;
+        forEachNodeAfterFilter(callback: Function): void;
+        forEachNodeAfterFilterAndSort(callback: Function): void;
+        private recursivelyWalkNodesAndCallback(list, callback);
         updateModel(step: any): void;
         private defaultGroupAggFunctionFactory(valueColumns, valueKeys);
         doAggregate(): void;
@@ -1262,11 +1278,14 @@ declare module awk.grid {
         loadPage(pageNumber: any): void;
         requestIsDaemon(datasourceVersionCopy: any): boolean;
         getVirtualRow(rowIndex: any): any;
-        forEachInMemory(callback: any): void;
+        forEachNode(callback: any): void;
         getModel(): {
             getVirtualRow: (index: any) => any;
             getVirtualRowCount: () => any;
             forEachInMemory: (callback: any) => void;
+            forEachNode: (callback: any) => void;
+            forEachNodeAfterFilter: (callback: any) => void;
+            forEachNodeAfterFilterAndSort: (callback: any) => void;
         };
     }
 }
@@ -1593,28 +1612,27 @@ declare module awk.grid {
         enableServerSideSorting?: boolean;
         enableFilter?: boolean;
         enableServerSideFilter?: boolean;
-        icons?: any;
         colWidth?: number;
-        localeText?: any;
         suppressMenuHide?: boolean;
         debug?: boolean;
+        icons?: any;
         angularCompileRows?: boolean;
         angularCompileFilters?: boolean;
         angularCompileHeaders?: boolean;
+        localeText?: any;
+        localeTextFunc?: Function;
         groupSuppressAutoColumn?: boolean;
         groupSelectsChildren?: boolean;
         groupHidePivotColumns?: boolean;
         groupIncludeFooter?: boolean;
         groupUseEntireRow?: boolean;
-        groupColumnDef?: any;
         groupSuppressRow?: boolean;
         groupSuppressBlankHeader?: boolean;
         dontUseScrolls?: boolean;
+        groupColumnDef?: any;
         rowData?: any[];
         floatingTopRowData?: any[];
         floatingBottomRowData?: any[];
-        rowSelection?: string;
-        rowDeselection?: boolean;
         showToolPanel?: boolean;
         groupKeys?: string[];
         groupAggFunction?(nodes: any[]): any;
@@ -1630,6 +1648,8 @@ declare module awk.grid {
         headerCellRenderer?: any;
         groupDefaultExpanded?: any;
         slaveGrids?: GridOptions[];
+        rowSelection?: string;
+        rowDeselection?: boolean;
         ready?(api: any): void;
         groupInnerRenderer?(params: any): void;
         groupRowInnerRenderer?(params: any): void;
@@ -1714,7 +1734,10 @@ declare module awk.grid {
         ensureColIndexVisible(index: any): void;
         ensureIndexVisible(index: any): void;
         ensureNodeVisible(comparator: any): void;
-        forEachInMemory(callback: any): void;
+        forEachInMemory(callback: Function): void;
+        forEachNode(callback: Function): void;
+        forEachNodeAfterFilter(callback: Function): void;
+        forEachNodeAfterFilterAndSort(callback: Function): void;
         getFilterApiForColDef(colDef: any): any;
         getFilterApi(key: any): any;
         getColumnDef(key: any): ColDef;

@@ -17,6 +17,7 @@ var awk;
         var AgGridDirective = (function () {
             function AgGridDirective(elementDef) {
                 this.elementDef = elementDef;
+                // core grid events
                 this.modelUpdated = new ng.EventEmitter();
                 this.cellClicked = new ng.EventEmitter();
                 this.cellDoubleClicked = new ng.EventEmitter();
@@ -32,24 +33,73 @@ var awk;
                 this.virtualRowRemoved = new ng.EventEmitter();
                 this.rowClicked = new ng.EventEmitter();
                 this.ready = new ng.EventEmitter();
+                // column grid events
+                this.columnEverythingChanged = new ng.EventEmitter();
+                this.columnPivotChanged = new ng.EventEmitter();
+                this.columnValueChanged = new ng.EventEmitter();
+                this.columnMoved = new ng.EventEmitter();
+                this.columnVisible = new ng.EventEmitter();
+                this.columnGroupOpened = new ng.EventEmitter();
+                this.columnResized = new ng.EventEmitter();
+                this.columnPinnedCountChanged = new ng.EventEmitter();
             }
-            Object.defineProperty(AgGridDirective.prototype, "gridOptions", {
-                set: function (gridOptions) {
-                    this._gridOptions = gridOptions;
-                    var nativeElement = this.elementDef.nativeElement;
-                    this._agGrid = new awk.grid.Grid(nativeElement, gridOptions, this.genericEventListener.bind(this));
-                    this.api = this._gridOptions.api;
-                },
-                enumerable: true,
-                configurable: true
-            });
             Object.defineProperty(AgGridDirective.prototype, "quickFilterText", {
                 set: function (text) {
-                    this._gridOptions.api.setQuickFilter(text);
+                    if (this.gridOptions) {
+                        this.gridOptions.api.setQuickFilter(text);
+                    }
                 },
                 enumerable: true,
                 configurable: true
             });
+            // this gets called after the directive is initialised
+            AgGridDirective.prototype.onInit = function () {
+                var nativeElement = this.elementDef.nativeElement;
+                this._agGrid = new awk.grid.Grid(nativeElement, this.gridOptions, this.genericEventListener.bind(this));
+                this.api = this.gridOptions.api;
+                this.columnApi = this.gridOptions.columnApi;
+                this.columnApi.addChangeListener(this.columnEventListener.bind(this));
+            };
+            AgGridDirective.prototype.onChange = function (changes) {
+                if (changes && changes.showToolPanel) {
+                    this.api.showToolPanel(changes.showToolPanel);
+                }
+                //console.log('got changes');
+                //console.log(changes);
+            };
+            AgGridDirective.prototype.columnEventListener = function (event) {
+                var emitter;
+                switch (event.getType()) {
+                    case grid.ColumnChangeEvent.TYPE_COLUMN_GROUP_OPENED:
+                        emitter = this.columnGroupOpened;
+                        break;
+                    case grid.ColumnChangeEvent.TYPE_COLUMN_EVERYTHING_CHANGED:
+                        emitter = this.columnEverythingChanged;
+                        break;
+                    case grid.ColumnChangeEvent.TYPE_COLUMN_MOVED:
+                        emitter = this.columnMoved;
+                        break;
+                    case grid.ColumnChangeEvent.TYPE_COLUMN_PINNED_COUNT_CHANGED:
+                        emitter = this.columnPinnedCountChanged;
+                        break;
+                    case grid.ColumnChangeEvent.TYPE_COLUMN_PIVOT_CHANGE:
+                        emitter = this.columnPivotChanged;
+                        break;
+                    case grid.ColumnChangeEvent.TYPE_COLUMN_RESIZED:
+                        emitter = this.columnResized;
+                        break;
+                    case grid.ColumnChangeEvent.TYPE_COLUMN_VALUE_CHANGE:
+                        emitter = this.columnValueChanged;
+                        break;
+                    case grid.ColumnChangeEvent.TYPE_COLUMN_VISIBLE:
+                        emitter = this.columnVisible;
+                        break;
+                    default:
+                        console.log('ag-Grid: AgGridDirective - unknown event type: ' + event);
+                        return;
+                }
+                emitter.next(event);
+            };
             AgGridDirective.prototype.genericEventListener = function (eventName, event) {
                 var emitter;
                 switch (eventName) {
@@ -98,13 +148,16 @@ var awk;
                     case grid.Constants.EVENT_READY:
                         emitter = this.ready;
                         break;
+                    default:
+                        console.log('ag-Grid: AgGridDirective - unknown event type: ' + eventName);
+                        return;
                 }
-                if (emitter) {
-                    if (event === null || event === undefined) {
-                        event = {};
-                    }
-                    emitter.next(event);
+                // not all the grid events have data, but angular 2 requires some object to be the
+                // event, so put in an empty object if missing the event.
+                if (event === null || event === undefined) {
+                    event = {};
                 }
+                emitter.next(event);
             };
             return AgGridDirective;
         })();
@@ -116,12 +169,18 @@ var awk;
             AgGridDirective.annotations = [
                 new ng.Component({
                     selector: 'ag-grid-a2',
-                    events: ['modelUpdated', 'cellClicked', 'cellDoubleClicked', 'cellValueChanged', 'cellFocused',
+                    events: [
+                        // core grid events
+                        'modelUpdated', 'cellClicked', 'cellDoubleClicked', 'cellValueChanged', 'cellFocused',
                         'rowSelected', 'selectionChanged', 'beforeFilterChanged', 'afterFilterChanged',
                         'filterModified', 'beforeSortChanged', 'afterSortChanged', 'virtualRowRemoved',
-                        'rowClicked', 'ready'],
+                        'rowClicked', 'ready',
+                        // column events
+                        'columnEverythingChanged', 'columnPivotChanged', 'columnValueChanged', 'columnMoved',
+                        'columnVisible', 'columnGroupOpened', 'columnResized', 'columnPinnedCountChanged'],
                     properties: ['gridOptions', 'quickFilterText'],
-                    compileChildren: false // no angular on the inside thanks
+                    compileChildren: false,
+                    lifecycle: [ng.LifecycleEvent.onInit, ng.LifecycleEvent.onChange]
                 }),
                 new ng.View({
                     template: '',
@@ -200,22 +259,22 @@ var awk;
                 return this.columnGroup;
             };
             ColumnChangeEvent.prototype.isPivotChanged = function () {
-                return this.type === ColumnChangeEvent.TYPE_PIVOT_CHANGE || this.type === ColumnChangeEvent.TYPE_EVERYTHING;
+                return this.type === ColumnChangeEvent.TYPE_COLUMN_PIVOT_CHANGE || this.type === ColumnChangeEvent.TYPE_COLUMN_EVERYTHING_CHANGED;
             };
             ColumnChangeEvent.prototype.isValueChanged = function () {
-                return this.type === ColumnChangeEvent.TYPE_VALUE_CHANGE || this.type === ColumnChangeEvent.TYPE_EVERYTHING;
+                return this.type === ColumnChangeEvent.TYPE_COLUMN_VALUE_CHANGE || this.type === ColumnChangeEvent.TYPE_COLUMN_EVERYTHING_CHANGED;
             };
             ColumnChangeEvent.prototype.isIndividualColumnResized = function () {
                 return this.type === ColumnChangeEvent.TYPE_COLUMN_RESIZED && this.column !== undefined && this.column !== null;
             };
             /** A new set of columns has been entered, everything has potentially changed. */
-            ColumnChangeEvent.TYPE_EVERYTHING = 'everything';
+            ColumnChangeEvent.TYPE_COLUMN_EVERYTHING_CHANGED = 'columnEverythingChanged';
             /** A pivot column was added, removed or order changed. */
-            ColumnChangeEvent.TYPE_PIVOT_CHANGE = 'pivot';
+            ColumnChangeEvent.TYPE_COLUMN_PIVOT_CHANGE = 'columnPivotChanged';
             /** A value column was added, removed or agg function was changed. */
-            ColumnChangeEvent.TYPE_VALUE_CHANGE = 'value';
+            ColumnChangeEvent.TYPE_COLUMN_VALUE_CHANGE = 'columnValueChanged';
             /** A column was moved */
-            ColumnChangeEvent.TYPE_COLUMN_MOVED = 'columnMoved';
+            ColumnChangeEvent.TYPE_COLUMN_MOVED = 'columnPinnedCountChanged';
             /** One or more columns was shown / hidden */
             ColumnChangeEvent.TYPE_COLUMN_VISIBLE = 'columnVisible';
             /** A column group was opened / closed */
@@ -223,7 +282,7 @@ var awk;
             /** One or more columns was resized. If just one, the column in the event is set. */
             ColumnChangeEvent.TYPE_COLUMN_RESIZED = 'columnResized';
             /** One or more columns was resized. If just one, the column in the event is set. */
-            ColumnChangeEvent.TYPE_PINNED_COUNT_CHANGED = 'pinnedCountChanged';
+            ColumnChangeEvent.TYPE_COLUMN_PINNED_COUNT_CHANGED = 'columnPinnedCountChanged';
             return ColumnChangeEvent;
         })();
         grid.ColumnChangeEvent = ColumnChangeEvent;
@@ -936,6 +995,9 @@ var awk;
                 }
             };
             GridOptionsWrapper.prototype.getLocaleTextFunc = function () {
+                if (this.gridOptions.localeTextFunc) {
+                    return this.gridOptions.localeTextFunc;
+                }
                 var that = this;
                 return function (key, defaultValue) {
                     var localeText = that.gridOptions.localeText;
@@ -1076,9 +1138,9 @@ var awk;
                     }
                     switch (event.getType()) {
                         // we don't do anything for these three events
-                        //case ColumnChangeEvent.TYPE_EVERYTHING:
-                        //case ColumnChangeEvent.TYPE_PIVOT_CHANGE:
-                        //case ColumnChangeEvent.TYPE_VALUE_CHANGE:
+                        //case ColumnChangeEvent.TYPE_COLUMN_EVERYTHING_CHANGED:
+                        //case ColumnChangeEvent.TYPE_COLUMN_PIVOT_CHANGE:
+                        //case ColumnChangeEvent.TYPE_COLUMN_VALUE_CHANGE:
                         case grid.ColumnChangeEvent.TYPE_COLUMN_MOVED:
                             _this.logger.log('onColumnEvent-> processing ' + event + ' fromIndex = ' + event.getFromIndex() + ', toIndex = ' + event.getToIndex());
                             _this.columnController.moveColumn(event.getFromIndex(), event.getToIndex());
@@ -1095,7 +1157,7 @@ var awk;
                             _this.logger.log('onColumnEvent-> processing ' + event + ' actualWidth = ' + masterColumn.actualWidth);
                             _this.columnController.setColumnWidth(slaveColumn, masterColumn.actualWidth);
                             break;
-                        case grid.ColumnChangeEvent.TYPE_PINNED_COUNT_CHANGED:
+                        case grid.ColumnChangeEvent.TYPE_COLUMN_PINNED_COUNT_CHANGED:
                             _this.logger.log('onColumnEvent-> processing ' + event);
                             _this.columnController.setPinnedColumnCount(event.getPinnedColumnCount());
                             break;
@@ -1201,7 +1263,7 @@ var awk;
                 // because we could be taking out 'pivot' columns, the displayed
                 // columns may differ, so need to work out all the columns again
                 this.updateModel();
-                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_PIVOT_CHANGE));
+                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_COLUMN_PIVOT_CHANGE));
             };
             ColumnController.prototype.setPinnedColumnCount = function (count) {
                 if (!(typeof count === 'number')) {
@@ -1214,7 +1276,7 @@ var awk;
                 }
                 this.pinnedColumnCount = count;
                 this.updateModel();
-                var event = new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_PINNED_COUNT_CHANGED).withPinnedColumnCount(count);
+                var event = new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_COLUMN_PINNED_COUNT_CHANGED).withPinnedColumnCount(count);
                 this.fireColumnChanged(event);
             };
             ColumnController.prototype.removePivotColumn = function (column) {
@@ -1224,7 +1286,7 @@ var awk;
                 }
                 _.removeFromArray(this.pivotColumns, column);
                 this.updateModel();
-                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_PIVOT_CHANGE));
+                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_COLUMN_PIVOT_CHANGE));
             };
             ColumnController.prototype.addValueColumn = function (column) {
                 if (this.allColumns.indexOf(column) < 0) {
@@ -1239,7 +1301,7 @@ var awk;
                     column.aggFunc = constants.SUM;
                 }
                 this.valueColumns.push(column);
-                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_VALUE_CHANGE));
+                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_COLUMN_VALUE_CHANGE));
             };
             ColumnController.prototype.removeValueColumn = function (column) {
                 if (this.valueColumns.indexOf(column) < 0) {
@@ -1247,7 +1309,7 @@ var awk;
                     return;
                 }
                 _.removeFromArray(this.valueColumns, column);
-                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_VALUE_CHANGE));
+                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_COLUMN_VALUE_CHANGE));
             };
             // returns true if the col is either in all columns or visible columns.
             // we need to check visible columns because the grouping column could come
@@ -1292,13 +1354,13 @@ var awk;
             };
             ColumnController.prototype.setColumnAggFunction = function (column, aggFunc) {
                 column.aggFunc = aggFunc;
-                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_VALUE_CHANGE));
+                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_COLUMN_VALUE_CHANGE));
             };
             ColumnController.prototype.movePivotColumn = function (fromIndex, toIndex) {
                 var column = this.pivotColumns[fromIndex];
                 this.pivotColumns.splice(fromIndex, 1);
                 this.pivotColumns.splice(toIndex, 0, column);
-                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_PIVOT_CHANGE));
+                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_COLUMN_PIVOT_CHANGE));
             };
             ColumnController.prototype.moveColumn = function (fromIndex, toIndex) {
                 var column = this.allColumns[fromIndex];
@@ -1432,7 +1494,7 @@ var awk;
                     return colA.pivotIndex - colB.pivotIndex;
                 });
                 this.updateModel();
-                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_EVERYTHING));
+                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_COLUMN_EVERYTHING_CHANGED));
             };
             ColumnController.prototype.getColumn = function (key) {
                 if (!key) {
@@ -1513,7 +1575,7 @@ var awk;
                 this.createPivotColumns();
                 this.createValueColumns();
                 this.updateModel();
-                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_EVERYTHING));
+                this.fireColumnChanged(new grid.ColumnChangeEvent(grid.ColumnChangeEvent.TYPE_COLUMN_EVERYTHING_CHANGED));
                 this.setupComplete = true;
             };
             ColumnController.prototype.checkForDeprecatedItems = function (columnDefs) {
@@ -2345,7 +2407,7 @@ var awk;
                 var _this = this;
                 var uniqueCheck = {};
                 var result = [];
-                this.rowModel.forEachInMemory(function (node) {
+                this.rowModel.forEachNode(function (node) {
                     if (!node.group) {
                         var value = _this.valueGetter(node);
                         if (value === "" || value === undefined) {
@@ -3244,6 +3306,7 @@ var awk;
                     localeTextFunc: this.gridOptionsWrapper.getLocaleTextFunc(),
                     valueGetter: this.createValueGetter(column),
                     doesRowPassOtherFilter: doesRowPassOtherFilters,
+                    context: this.gridOptionsWrapper.getContext,
                     $scope: filterWrapper.scope
                 };
                 if (!filterWrapper.filter.init) {
@@ -6449,6 +6512,15 @@ var awk;
                     },
                     forEachInMemory: function (callback) {
                         that.forEachInMemory(callback);
+                    },
+                    forEachNode: function (callback) {
+                        that.forEachNode(callback);
+                    },
+                    forEachNodeAfterFilter: function (callback) {
+                        that.forEachNodeAfterFilter(callback);
+                    },
+                    forEachNodeAfterFilterAndSort: function (callback) {
+                        that.forEachNodeAfterFilterAndSort(callback);
                     }
                 };
             };
@@ -6456,19 +6528,29 @@ var awk;
                 return this.model;
             };
             InMemoryRowController.prototype.forEachInMemory = function (callback) {
-                // iterates through each item in memory, and calls the callback function
-                function doCallback(list) {
-                    if (list) {
-                        for (var i = 0; i < list.length; i++) {
-                            var item = list[i];
-                            callback(item);
-                            if (item.group && item.children) {
-                                doCallback(item.children);
-                            }
+                console.warn('ag-Grid: please use forEachNode instead of forEachInMemory, method is same, I just renamed it, forEachInMemory is deprecated');
+                this.forEachNode(callback);
+            };
+            InMemoryRowController.prototype.forEachNode = function (callback) {
+                this.recursivelyWalkNodesAndCallback(this.rowsAfterGroup, callback);
+            };
+            InMemoryRowController.prototype.forEachNodeAfterFilter = function (callback) {
+                this.recursivelyWalkNodesAndCallback(this.rowsAfterFilter, callback);
+            };
+            InMemoryRowController.prototype.forEachNodeAfterFilterAndSort = function (callback) {
+                this.recursivelyWalkNodesAndCallback(this.rowsAfterSort, callback);
+            };
+            // iterates through each item in memory, and calls the callback function
+            InMemoryRowController.prototype.recursivelyWalkNodesAndCallback = function (list, callback) {
+                if (list) {
+                    for (var i = 0; i < list.length; i++) {
+                        var item = list[i];
+                        callback(item);
+                        if (item.group && item.children) {
+                            this.recursivelyWalkNodesAndCallback(item.children, callback);
                         }
                     }
                 }
-                doCallback(this.rowsAfterGroup);
             };
             InMemoryRowController.prototype.updateModel = function (step) {
                 var _this = this;
@@ -7157,7 +7239,7 @@ var awk;
                     return page[indexInThisPage];
                 }
             };
-            VirtualPageRowController.prototype.forEachInMemory = function (callback) {
+            VirtualPageRowController.prototype.forEachNode = function (callback) {
                 var pageKeys = Object.keys(this.pageCache);
                 for (var i = 0; i < pageKeys.length; i++) {
                     var pageKey = pageKeys[i];
@@ -7178,7 +7260,16 @@ var awk;
                         return that.virtualRowCount;
                     },
                     forEachInMemory: function (callback) {
-                        that.forEachInMemory(callback);
+                        that.forEachNode(callback);
+                    },
+                    forEachNode: function (callback) {
+                        that.forEachNode(callback);
+                    },
+                    forEachNodeAfterFilter: function (callback) {
+                        console.warn('forEachNodeAfterFilter - does not work with virtual pagination');
+                    },
+                    forEachNodeAfterFilterAndSort: function (callback) {
+                        console.warn('forEachNodeAfterFilterAndSort - does not work with virtual pagination');
                     }
                 };
             };
@@ -8933,7 +9024,17 @@ var awk;
                 this.grid.ensureNodeVisible(comparator);
             };
             GridApi.prototype.forEachInMemory = function (callback) {
-                this.grid.getRowModel().forEachInMemory(callback);
+                console.warn('ag-Grid: please use forEachNode instead of forEachInMemory, method is same, I just renamed it, forEachInMemory is deprecated');
+                this.forEachNode(callback);
+            };
+            GridApi.prototype.forEachNode = function (callback) {
+                this.grid.getRowModel().forEachNode(callback);
+            };
+            GridApi.prototype.forEachNodeAfterFilter = function (callback) {
+                this.grid.getRowModel().forEachNodeAfterFilter(callback);
+            };
+            GridApi.prototype.forEachNodeAfterFilterAndSort = function (callback) {
+                this.grid.getRowModel().forEachNodeAfterFilterAndSort(callback);
             };
             GridApi.prototype.getFilterApiForColDef = function (colDef) {
                 console.warn('ag-grid API method getFilterApiForColDef deprecated, use getFilterApi instead');
